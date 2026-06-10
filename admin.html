@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — Quiniela Mundial 2026</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>⚽ <span>Admin</span> Quiniela 2026</h1>
+    <nav>
+      <a href="/">Inicio</a>
+      <a href="/tabla">Tabla</a>
+      <a href="#" id="logout-btn">🚪 Salir</a>
+    </nav>
+  </header>
+
+  <!-- LOGIN -->
+  <div id="login-screen" class="login-wrap">
+    <div class="login-box">
+      <div style="font-size:3rem;margin-bottom:12px;">🔐</div>
+      <h2>Panel Administrador</h2>
+      <p>Ingresa la contraseña para continuar</p>
+      <div class="form-group" style="text-align:left;margin-bottom:16px;">
+        <label>Contraseña</label>
+        <input type="password" id="pw-input" placeholder="Contraseña admin" />
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="login()">Entrar</button>
+      <p id="login-err" style="color:var(--danger);margin-top:12px;font-size:0.88rem;"></p>
+    </div>
+  </div>
+
+  <!-- MAIN PANEL -->
+  <div id="admin-panel" style="display:none">
+    <div class="container">
+
+      <!-- TABS -->
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('participantes')">👥 Participantes</button>
+        <button class="tab-btn" onclick="switchTab('partidos')">⚽ Partidos</button>
+        <button class="tab-btn" onclick="switchTab('quinielas')">📋 Quinielas</button>
+      </div>
+
+      <!-- TAB: PARTICIPANTES -->
+      <div class="tab-pane active" id="tab-participantes">
+        <!-- Add participant -->
+        <div class="card">
+          <h2>➕ Agregar Participante</h2>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Nombre</label>
+              <input type="text" id="p-name" placeholder="Nombre completo" />
+            </div>
+            <div class="form-group">
+              <label>Correo electrónico</label>
+              <input type="email" id="p-email" placeholder="correo@ejemplo.com" />
+            </div>
+            <div class="form-group">
+              <label>Equipo favorito (opcional)</label>
+              <select id="p-team"><option value="">— Sin asignar —</option></select>
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="addParticipant()">📧 Agregar e Invitar</button>
+        </div>
+
+        <!-- Sync button -->
+        <div class="card" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+          <div style="flex:1">
+            <h2 style="margin-bottom:4px;">🔄 Sincronizar Resultados</h2>
+            <p style="color:var(--text-light);font-size:0.88rem;">Obtiene resultados reales desde football-data.org</p>
+          </div>
+          <button class="btn btn-gold" onclick="syncResults()" id="sync-btn">🔄 Sincronizar Resultados</button>
+        </div>
+
+        <!-- Participants list -->
+        <div class="card">
+          <h2>👥 Participantes Registrados</h2>
+          <div class="table-wrap">
+            <table id="participants-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Nombre</th>
+                  <th>Correo</th>
+                  <th>Equipo Favorito</th>
+                  <th>Enlace</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="participants-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB: PARTIDOS -->
+      <div class="tab-pane" id="tab-partidos">
+        <div class="card">
+          <h2>⚽ Fixture — Fase de Grupos</h2>
+          <div id="matches-content"></div>
+        </div>
+      </div>
+
+      <!-- TAB: QUINIELAS -->
+      <div class="tab-pane" id="tab-quinielas">
+        <div class="card">
+          <h2>📋 Vista General de Quinielas</h2>
+          <p style="color:var(--text-light);margin-bottom:16px;font-size:0.88rem;">
+            Predicciones registradas por partido.
+          </p>
+          <div id="quinielas-content"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- NOTIFY MODAL -->
+  <div id="notify-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;align-items:center;justify-content:center;">
+    <div class="card" style="max-width:440px;width:90%;margin:0;">
+      <h2>📧 Notificar Participante</h2>
+      <p id="notify-who" style="color:var(--text-light);margin-bottom:12px;font-size:0.9rem;"></p>
+      <div class="form-group" style="margin-bottom:16px;">
+        <label>Mensaje</label>
+        <textarea id="notify-msg" rows="4" placeholder="Ej: ¡Tu equipo avanzó a Cuartos de Final!"></textarea>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-primary" onclick="sendNotify()">Enviar</button>
+        <button class="btn btn-danger" onclick="closeNotify()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="utils.js"></script>
+  <script>
+    let adminPw = '';
+    let allTeams = [];
+    let allParticipants = [];
+    let notifyParticipantId = null;
+
+    function adminHeaders() {
+      return { 'x-admin-password': adminPw };
+    }
+
+    async function login() {
+      const pw = document.getElementById('pw-input').value;
+      try {
+        await api('POST', '/api/admin/login', { password: pw });
+        adminPw = pw;
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('admin-panel').style.display = 'block';
+        loadAll();
+      } catch (e) {
+        document.getElementById('login-err').textContent = e.message;
+      }
+    }
+
+    document.getElementById('pw-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') login();
+    });
+
+    document.getElementById('logout-btn').addEventListener('click', e => {
+      e.preventDefault();
+      adminPw = '';
+      document.getElementById('admin-panel').style.display = 'none';
+      document.getElementById('login-screen').style.display = 'flex';
+    });
+
+    function switchTab(name) {
+      document.querySelectorAll('.tab-btn').forEach((b, i) => {
+        const tabId = ['participantes','partidos','quinielas'][i];
+        b.classList.toggle('active', tabId === name);
+      });
+      document.querySelectorAll('.tab-pane').forEach(p => {
+        p.classList.toggle('active', p.id === 'tab-' + name);
+      });
+      if (name === 'partidos') loadMatches();
+      if (name === 'quinielas') loadQuinielas();
+    }
+
+    async function loadAll() {
+      await loadTeams();
+      await loadParticipants();
+    }
+
+    async function loadTeams() {
+      try {
+        allTeams = await api('GET', '/api/admin/teams', null, adminHeaders());
+        const sel = document.getElementById('p-team');
+        sel.innerHTML = '<option value="">— Sin asignar —</option>';
+        for (const t of allTeams) {
+          sel.innerHTML += `<option value="${t.id}">${t.flag || ''} ${t.name} (Grupo ${t.group_name})</option>`;
+        }
+      } catch(e) { toast('Error cargando equipos: ' + e.message, 'error'); }
+    }
+
+    async function loadParticipants() {
+      try {
+        allParticipants = await api('GET', '/api/admin/participants', null, adminHeaders());
+        renderParticipants();
+      } catch(e) { toast('Error cargando participantes: ' + e.message, 'error'); }
+    }
+
+    function renderParticipants() {
+      const tbody = document.getElementById('participants-tbody');
+      if (!allParticipants.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-light);padding:24px;">Sin participantes aún</td></tr>';
+        return;
+      }
+      tbody.innerHTML = allParticipants.map((p, i) => {
+        const teamLabel = p.team_name
+          ? `${p.team_flag || ''} ${p.team_name}`
+          : '<span style="color:var(--text-light)">Sin equipo</span>';
+        const link = `${window.location.origin}/quiniela/${p.token}`;
+        const teamOptions = allTeams.map(t =>
+          `<option value="${t.id}" ${p.team_id === t.id ? 'selected' : ''}>${t.flag||''} ${t.name}</option>`
+        ).join('');
+        return `<tr>
+          <td>${i + 1}</td>
+          <td><strong>${p.name}</strong></td>
+          <td style="font-size:0.85rem">${p.email}</td>
+          <td>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <select id="team-sel-${p.id}" style="font-size:0.82rem;padding:4px 6px;border-radius:6px;">
+                <option value="">— Ninguno —</option>
+                ${teamOptions}
+              </select>
+              <button class="btn btn-sm btn-primary" onclick="assignTeam(${p.id})">💾</button>
+              <button class="btn btn-sm btn-gold" onclick="raffleTeam(${p.id})">🎲 Sortear</button>
+            </div>
+          </td>
+          <td>
+            <a href="${link}" target="_blank" class="btn btn-sm btn-primary">🔗 Ver</a>
+            <button class="btn btn-sm" style="background:#e9ecef;margin-left:4px;" onclick="copyLink('${link}')">📋</button>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-gold" onclick="openNotify(${p.id}, '${p.name}')">📧 Notificar</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function addParticipant() {
+      const name = document.getElementById('p-name').value.trim();
+      const email = document.getElementById('p-email').value.trim();
+      const team_id = document.getElementById('p-team').value || null;
+      if (!name || !email) return toast('Completa nombre y email', 'error');
+      try {
+        const res = await api('POST', '/api/admin/participants', { name, email, team_id }, adminHeaders());
+        toast(`✅ ${name} agregado${res.emailSent ? ' — correo enviado' : ' — correo no enviado (revisa .env)'}`, 'success');
+        document.getElementById('p-name').value = '';
+        document.getElementById('p-email').value = '';
+        document.getElementById('p-team').value = '';
+        await loadParticipants();
+      } catch(e) { toast(e.message, 'error'); }
+    }
+
+    async function assignTeam(id) {
+      const sel = document.getElementById(`team-sel-${id}`);
+      const team_id = sel.value || null;
+      try {
+        await api('PATCH', `/api/admin/participants/${id}/team`, { team_id }, adminHeaders());
+        toast('Equipo asignado ✅', 'success');
+        await loadParticipants();
+      } catch(e) { toast(e.message, 'error'); }
+    }
+
+    async function raffleTeam(id) {
+      try {
+        const res = await api('POST', `/api/admin/participants/${id}/raffle`, {}, adminHeaders());
+        toast(`🎲 Equipo sorteado: ${res.team.flag || ''} ${res.team.name}`, 'success');
+        await loadParticipants();
+      } catch(e) { toast(e.message, 'error'); }
+    }
+
+    async function syncResults() {
+      const btn = document.getElementById('sync-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Sincronizando...';
+      try {
+        const res = await api('POST', '/api/admin/sync', {}, adminHeaders());
+        toast(`✅ Sincronizados ${res.synced} partidos`, 'success');
+      } catch(e) { toast(e.message, 'error'); }
+      btn.disabled = false;
+      btn.innerHTML = '🔄 Sincronizar Resultados';
+    }
+
+    async function loadMatches() {
+      try {
+        const matches = await api('GET', '/api/admin/matches', null, adminHeaders());
+        const groups = {};
+        matches.forEach(m => {
+          const g = m.group_name || 'Sin grupo';
+          if (!groups[g]) groups[g] = [];
+          groups[g].push(m);
+        });
+        let html = '';
+        for (const [g, ms] of Object.entries(groups)) {
+          html += `<h3 style="color:var(--green-dark);margin:16px 0 8px;">Grupo ${g}</h3>`;
+          html += `<div class="table-wrap"><table><thead><tr>
+            <th>Local</th><th>Visitante</th><th>Fecha</th><th>Estado</th><th>Resultado</th>
+          </tr></thead><tbody>`;
+          ms.forEach(m => {
+            const score = m.home_score !== null ? `${m.home_score} - ${m.away_score}` : '— vs —';
+            html += `<tr>
+              <td>${m.home_team}</td>
+              <td>${m.away_team}</td>
+              <td style="font-size:0.82rem">${fmtDate(m.match_date)}</td>
+              <td>${statusBadge(m.status)}</td>
+              <td><strong>${score}</strong></td>
+            </tr>`;
+          });
+          html += '</tbody></table></div>';
+        }
+        document.getElementById('matches-content').innerHTML = html || '<p>Sin partidos cargados aún.</p>';
+      } catch(e) { toast(e.message, 'error'); }
+    }
+
+    async function loadQuinielas() {
+      try {
+        const [participants, matches] = await Promise.all([
+          api('GET', '/api/admin/participants', null, adminHeaders()),
+          api('GET', '/api/admin/matches', null, adminHeaders()),
+        ]);
+
+        if (!participants.length) {
+          document.getElementById('quinielas-content').innerHTML = '<p style="color:var(--text-light)">Sin participantes.</p>';
+          return;
+        }
+
+        let html = `<div class="table-wrap"><table>
+          <thead><tr>
+            <th>Participante</th><th>Equipo</th>`;
+        const upcoming = matches.slice(0, 20);
+        upcoming.forEach(m => {
+          html += `<th style="font-size:0.75rem;white-space:nowrap">${m.home_team}<br>vs<br>${m.away_team}</th>`;
+        });
+        html += `<th>Pts</th></tr></thead><tbody>`;
+
+        // Fetch full leaderboard for points
+        const board = await api('GET', '/api/public/leaderboard');
+        const boardMap = {};
+        board.forEach(b => { boardMap[b.id] = b.points; });
+
+        // For each participant, fetch predictions via their token
+        for (const p of participants) {
+          const profile = await api('GET', `/api/participant/${p.token}`);
+          html += `<tr><td><strong>${p.name}</strong></td><td>${p.team_flag||''} ${p.team_name||'—'}</td>`;
+          upcoming.forEach(m => {
+            const pred = profile.matches.find(pm => pm.id === m.id);
+            if (pred && pred.pred_home !== null) {
+              html += `<td style="text-align:center">${pred.pred_home}-${pred.pred_away}</td>`;
+            } else {
+              html += `<td style="text-align:center;color:var(--text-light)">—</td>`;
+            }
+          });
+          html += `<td><strong>${boardMap[p.id] || 0} pts</strong></td></tr>`;
+        }
+
+        html += '</tbody></table></div>';
+        document.getElementById('quinielas-content').innerHTML = html;
+      } catch(e) { toast(e.message, 'error'); }
+    }
+
+    function copyLink(link) {
+      navigator.clipboard.writeText(link).then(() => toast('Enlace copiado 📋', 'success'));
+    }
+
+    function openNotify(id, name) {
+      notifyParticipantId = id;
+      document.getElementById('notify-who').textContent = `Notificando a: ${name}`;
+      document.getElementById('notify-msg').value = '';
+      const modal = document.getElementById('notify-modal');
+      modal.style.display = 'flex';
+    }
+
+    function closeNotify() {
+      document.getElementById('notify-modal').style.display = 'none';
+    }
+
+    async function sendNotify() {
+      const message = document.getElementById('notify-msg').value.trim();
+      if (!message) return toast('Escribe un mensaje', 'error');
+      try {
+        await api('POST', `/api/admin/notify/${notifyParticipantId}`, { message }, adminHeaders());
+        toast('✅ Notificación enviada', 'success');
+        closeNotify();
+      } catch(e) { toast(e.message, 'error'); }
+    }
+
+    // Close modal on backdrop click
+    document.getElementById('notify-modal').addEventListener('click', function(e) {
+      if (e.target === this) closeNotify();
+    });
+  </script>
+</body>
+</html>
