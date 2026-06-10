@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mi Quiniela — Mundial 2026</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <h1>⚽ <span>Mi Quiniela</span> 2026</h1>
+    <nav>
+      <a href="/">Inicio</a>
+      <a href="/tabla">🏅 Tabla</a>
+    </nav>
+  </header>
+
+  <div id="loading" class="container" style="text-align:center;padding:60px 0;">
+    <div class="spinner" style="width:40px;height:40px;border-width:4px;border-color:rgba(0,100,0,.2);border-top-color:var(--green-mid);margin:0 auto 16px;"></div>
+    <p style="color:var(--text-light)">Cargando tu quiniela...</p>
+  </div>
+
+  <div id="main" style="display:none">
+    <div class="container">
+
+      <!-- Hero -->
+      <div class="hero" id="hero-strip">
+        <div class="hero-emoji" id="hero-emoji">⚽</div>
+        <div>
+          <h2 id="hero-name"></h2>
+          <p id="hero-team"></p>
+          <p id="hero-rank" style="color:var(--gold);font-weight:700;margin-top:4px;"></p>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('predicciones')">⚽ Mis Predicciones</button>
+        <button class="tab-btn" onclick="switchTab('tabla')">🏅 Tabla de Posiciones</button>
+      </div>
+
+      <!-- TAB: PREDICCIONES -->
+      <div class="tab-pane active" id="tab-predicciones">
+        <div id="groups-container"></div>
+      </div>
+
+      <!-- TAB: TABLA -->
+      <div class="tab-pane" id="tab-tabla">
+        <div class="card">
+          <h2>🏅 Tabla de Posiciones</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>#</th><th>Participante</th><th>Equipo Favorito</th><th>Puntos</th>
+              </tr></thead>
+              <tbody id="leaderboard-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="error-screen" style="display:none" class="login-wrap">
+    <div class="login-box">
+      <div style="font-size:3rem;margin-bottom:12px;">❌</div>
+      <h2>Enlace inválido</h2>
+      <p>Este enlace no es válido o ha expirado. Contacta al administrador.</p>
+      <a href="/" class="btn btn-primary" style="margin-top:16px;">Ir al inicio</a>
+    </div>
+  </div>
+
+  <script src="/utils.js"></script>
+  <script>
+    const token = location.pathname.split('/quiniela/')[1];
+    let participantId = null;
+    let matchesData = [];
+
+    function switchTab(name) {
+      document.querySelectorAll('.tab-btn').forEach((b, i) => {
+        const tabId = ['predicciones', 'tabla'][i];
+        b.classList.toggle('active', tabId === name);
+      });
+      document.querySelectorAll('.tab-pane').forEach(p => {
+        p.classList.toggle('active', p.id === 'tab-' + name);
+      });
+    }
+
+    async function loadQuiniela() {
+      if (!token) return showError();
+      try {
+        const data = await api('GET', `/api/participant/${token}`);
+        const { participant, matches, leaderboard } = data;
+        participantId = participant.id;
+        matchesData = matches;
+
+        // Hero
+        document.getElementById('hero-name').textContent = `¡Hola, ${participant.name}! 👋`;
+        document.getElementById('hero-team').textContent = participant.team_name
+          ? `${participant.team_flag || '⚽'} Tu equipo: ${participant.team_name} (Grupo ${participant.team_group})`
+          : 'Sin equipo asignado aún';
+        document.getElementById('hero-rank').textContent =
+          `Posición: #${participant.rank || '—'} · ${participant.points || 0} puntos`;
+        document.getElementById('hero-emoji').textContent = participant.team_flag || '⚽';
+
+        // Group matches
+        renderMatchCards(matches);
+
+        // Leaderboard
+        renderLeaderboard(leaderboard, participant.id);
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('main').style.display = 'block';
+      } catch(e) {
+        console.error(e);
+        showError();
+      }
+    }
+
+    function renderMatchCards(matches) {
+      const groups = {};
+      matches.forEach(m => {
+        const g = m.group_name || 'Sin grupo';
+        if (!groups[g]) groups[g] = [];
+        groups[g].push(m);
+      });
+
+      let html = '';
+      for (const [g, ms] of Object.entries(groups)) {
+        html += `<div class="card">
+          <h2>Grupo ${g}</h2>
+          <div class="match-grid">`;
+        ms.forEach(m => {
+          const isLocked = ['FINISHED','IN_PLAY','PAUSED'].includes(m.status);
+          const score = m.home_score !== null ? `${m.home_score} – ${m.away_score}` : null;
+          const predH = m.pred_home !== null ? m.pred_home : '';
+          const predA = m.pred_away !== null ? m.pred_away : '';
+
+          html += `<div class="match-card">
+            <span class="group-badge">Grupo ${g}</span>
+            <div class="match-date">${fmtDate(m.match_date)} · ${statusBadge(m.status)}</div>
+            <div class="match-teams">
+              <span class="match-team">${m.home_team}</span>
+              <span class="match-vs">vs</span>
+              <span class="match-team">${m.away_team}</span>
+            </div>`;
+
+          if (score) {
+            html += `<div class="match-score">${score}</div>`;
+            // Show points earned
+            if (m.pred_home !== null) {
+              const pts = calcPoints(m.home_score, m.away_score, m.pred_home, m.pred_away);
+              html += `<div style="text-align:center;font-size:0.82rem;margin-top:4px;">
+                Tu predicción: ${m.pred_home}–${m.pred_away} · 
+                <strong style="color:${pts>0?'var(--success)':'var(--danger)'}">${pts} pts</strong>
+              </div>`;
+            }
+          }
+
+          if (!isLocked) {
+            html += `<div class="pred-inputs">
+              <input type="number" min="0" max="30" id="ph-${m.id}" value="${predH}" placeholder="0" />
+              <span>–</span>
+              <input type="number" min="0" max="30" id="pa-${m.id}" value="${predA}" placeholder="0" />
+              <button class="btn btn-primary" onclick="savePrediction(${m.id})">💾 Guardar</button>
+            </div>`;
+          } else if (m.pred_home === null) {
+            html += `<div style="text-align:center;font-size:0.82rem;color:var(--text-light);margin-top:8px;">Sin predicción</div>`;
+          }
+
+          html += `</div>`;
+        });
+        html += `</div></div>`;
+      }
+
+      document.getElementById('groups-container').innerHTML = html || '<div class="card"><p>Sin partidos cargados.</p></div>';
+    }
+
+    function calcPoints(rH, rA, pH, pA) {
+      if (rH === null) return 0;
+      if (rH === pH && rA === pA) return 3;
+      const rW = rH > rA ? 'H' : rA > rH ? 'A' : 'D';
+      const pW = pH > pA ? 'H' : pA > pH ? 'A' : 'D';
+      return rW === pW ? 1 : 0;
+    }
+
+    function renderLeaderboard(board, myId) {
+      const tbody = document.getElementById('leaderboard-tbody');
+      if (!board.length) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-light);padding:20px">Sin datos</td></tr>';
+        return;
+      }
+      tbody.innerHTML = board.map((r, i) => {
+        const isMe = r.id === myId;
+        return `<tr class="${i < 3 ? 'rank-' + (i+1) : ''}" style="${isMe ? 'background:#f0fff0;font-weight:700' : ''}">
+          <td>${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</td>
+          <td>${r.name}${isMe ? ' <span class="badge badge-success">Tú</span>' : ''}</td>
+          <td>${r.team_flag || ''} ${r.team_name || '—'}</td>
+          <td><strong>${r.points}</strong> pts</td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function savePrediction(matchId) {
+      const home = parseInt(document.getElementById(`ph-${matchId}`).value);
+      const away = parseInt(document.getElementById(`pa-${matchId}`).value);
+      if (isNaN(home) || isNaN(away)) return toast('Ingresa ambos marcadores', 'error');
+      if (home < 0 || away < 0) return toast('Los marcadores no pueden ser negativos', 'error');
+      try {
+        await api('POST', `/api/participant/${token}/predict`, {
+          match_id: matchId, home_score: home, away_score: away
+        });
+        toast('Predicción guardada ✅', 'success');
+      } catch(e) { toast(e.message, 'error'); }
+    }
+
+    function showError() {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('error-screen').style.display = 'flex';
+    }
+
+    loadQuiniela();
+  </script>
+</body>
+</html>
